@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Manga Exporter</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f4efe4;
+        --panel: #fffaf1;
+        --text: #24180f;
+        --muted: #6f5a49;
+        --accent: #c96f2d;
+        --accent-strong: #9f4d16;
+        --border: #e7d7c4;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        background:
+          radial-gradient(circle at top left, #fff8ec 0, #fff8ec 28%, transparent 29%),
+          linear-gradient(135deg, #f3e6d1, #f8f3ea 58%, #efe3ce);
+        color: var(--text);
+      }
+
+      main {
+        padding: 16px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 18px;
+      }
+
+      p {
+        margin: 0 0 12px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .panel {
+        background: color-mix(in srgb, var(--panel) 92%, white);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px;
+        box-shadow: 0 10px 28px rgba(76, 49, 24, 0.09);
+      }
+
+      button {
+        width: 100%;
+        border: 0;
+        border-radius: 10px;
+        padding: 12px 14px;
+        background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+        color: white;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        opacity: 0.65;
+        cursor: progress;
+      }
+
+      #status {
+        margin-top: 12px;
+        min-height: 40px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: #fff;
+        border: 1px solid var(--border);
+        font-size: 13px;
+        line-height: 1.4;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="panel">
+        <h1>Export Truyen Theo Doi</h1>
+        <p>Mo dung trang theo doi, bam nut ben duoi de quet va tai file CSV.</p>
+        <button id="exportButton" type="button">Bat dau Export</button>
+        <div id="status">San sang.</div>
+      </div>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

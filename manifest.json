@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "GocTruyenTranhVui Follow Exporter",
+  "version": "0.1.0",
+  "description": "Xuat danh sach truyen dang theo doi va tien do doc ra file CSV.",
+  "permissions": [
+    "tabs"
+  ],
+  "host_permissions": [
+    "*://goctruyentranhvui23.com/*"
+  ],
+  "action": {
+    "default_title": "Manga Exporter",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://goctruyentranhvui23.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
