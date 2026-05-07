@@ -84,7 +84,7 @@ function formatScanResult(result) {
   });
   updateProgressBar(100);
   phaseText.textContent = "Hoàn tất";
-  setStatus("Đã quét xong", `${result.storyCount} truyện từ ${result.pageCount} trang. Có thể tải Excel.`);
+  setStatus("Đã quét xong", `${result.storyCount} truyện từ ${result.pageCount} trang. Có thể tải CSV.`);
 }
 
 function renderProgress(progress) {
@@ -197,13 +197,13 @@ async function startScan() {
   }
 }
 
-async function downloadExcel() {
+async function downloadCsv() {
   setBusy(true);
-  setStatus("Đang tạo file Excel", "File sẽ được tải xuống ngay khi tạo xong.");
+  setStatus("Đang tạo file CSV", "File sẽ được tải xuống ngay khi tạo xong.");
 
   try {
-    const response = await sendToContent("DOWNLOAD_EXCEL");
-    setStatus("Đã tải Excel", response.message || "Hoàn tất.");
+    const response = await sendToContent("DOWNLOAD_CSV");
+    setStatus("Đã tải CSV", response.message || "Hoàn tất.");
     setDownloadReady(true);
   } catch (error) {
     setStatus("Lỗi", error.message);
@@ -282,5 +282,5 @@ function escapeHtml(value) {
 }
 
 scanButton.addEventListener("click", startScan);
-downloadButton.addEventListener("click", downloadExcel);
+downloadButton.addEventListener("click", downloadCsv);
 restoreScanStatus();

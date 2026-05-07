@@ -83,16 +83,16 @@
       return;
     }
 
-    if (message?.type === "DOWNLOAD_EXCEL" || message?.type === "DOWNLOAD_CSV") {
+    if (message?.type === "DOWNLOAD_CSV") {
       try {
         if (state.scannedRows.length === 0) {
           throw new Error("Chưa có dữ liệu. Hãy bấm Quét trước.");
         }
 
-        downloadExcel(state.scannedRows);
+        downloadCsv(state.scannedRows);
         sendResponse({
           ok: true,
-          message: `Đã tải Excel với ${state.scannedRows.length} truyện.`
+          message: `Đã tải CSV với ${state.scannedRows.length} truyện.`
         });
       } catch (error) {
         sendResponse({
@@ -769,7 +769,7 @@
     return new Promise((resolve) => window.setTimeout(resolve, ms));
   }
 
-  function downloadExcel(rows) {
+  function downloadCsv(rows) {
     const headers = [
       "STT",
       "Tên truyện",
@@ -779,25 +779,25 @@
       "Số chap chưa đọc",
       "Ghi chú"
     ];
-    const columnWidths = [56, 360, 110, 92, 105, 132, 260];
-    const tableRows = rows.map((row, index) => [
-      index + 1,
-      row.title,
-      row.readStatus || row.progress,
-      row.continueChapter,
-      row.latestChapter,
-      row.unreadCount,
-      row.note
-    ]);
-    const html = buildExcelHtml(headers, tableRows, columnWidths);
-    const blob = new Blob(["\uFEFF", html], {
-      type: "application/vnd.ms-excel;charset=utf-8;"
-    });
+    const lines = [
+      headers.join(","),
+      ...rows.map((row, index) => [
+        escapeCsv(index + 1),
+        escapeCsv(row.title),
+        escapeCsv(row.readStatus || row.progress),
+        escapeCsv(row.continueChapter),
+        escapeCsv(row.latestChapter),
+        escapeCsv(row.unreadCount),
+        escapeCsv(row.note)
+      ].join(","))
+    ];
+    const csvContent = "\uFEFF" + lines.join("\r\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
 
     anchor.href = url;
-    anchor.download = "truyen_dang_theo_doi.xls";
+    anchor.download = "truyen_dang_theo_doi.csv";
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -805,73 +805,8 @@
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function buildExcelHtml(headers, rows, columnWidths) {
-    const cols = columnWidths
-      .map((width) => `<col style="width:${width}px">`)
-      .join("");
-    const headerCells = headers
-      .map((header) => `<th>${escapeHtml(header)}</th>`)
-      .join("");
-    const bodyRows = rows
-      .map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`)
-      .join("");
-
-    return `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <style>
-      table {
-        border-collapse: collapse;
-        font-family: Calibri, Arial, sans-serif;
-        font-size: 11pt;
-      }
-
-      th {
-        background: #d9eaf7;
-        border: 1px solid #b7c9d9;
-        font-weight: 700;
-        padding: 6px 8px;
-        text-align: left;
-        white-space: nowrap;
-      }
-
-      td {
-        border: 1px solid #d7dce2;
-        padding: 5px 8px;
-        vertical-align: top;
-      }
-
-      td:nth-child(1),
-      td:nth-child(4),
-      td:nth-child(5),
-      td:nth-child(6) {
-        text-align: right;
-        white-space: nowrap;
-      }
-
-      td:nth-child(2),
-      td:nth-child(7) {
-        white-space: normal;
-      }
-    </style>
-  </head>
-  <body>
-    <table>
-      <colgroup>${cols}</colgroup>
-      <thead><tr>${headerCells}</tr></thead>
-      <tbody>${bodyRows}</tbody>
-    </table>
-  </body>
-</html>`;
-  }
-
-  function escapeHtml(value) {
-    return `${value ?? ""}`
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
+  function escapeCsv(value) {
+    const normalized = `${value ?? ""}`.replace(/"/g, "\"\"");
+    return `"${normalized}"`;
   }
 })();
