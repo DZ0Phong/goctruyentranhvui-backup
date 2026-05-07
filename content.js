@@ -9,7 +9,10 @@
       storyCount: 0,
       detailDone: 0,
       detailTotal: 0,
-      currentTitle: ""
+      currentTitle: "",
+      scanStartedAt: 0,
+      detailStartedAt: 0,
+      updatedAt: 0
     }
   };
 
@@ -61,7 +64,7 @@
     },
     timings: {
       afterClickMs: 1200,
-      detailRenderTimeoutMs: 9000,
+      detailRenderTimeoutMs: 15000,
       detailRequestDelayMs: 1200
     },
     detailConcurrency: 1,
@@ -80,16 +83,16 @@
       return;
     }
 
-    if (message?.type === "DOWNLOAD_CSV") {
+    if (message?.type === "DOWNLOAD_EXCEL" || message?.type === "DOWNLOAD_CSV") {
       try {
         if (state.scannedRows.length === 0) {
           throw new Error("Chưa có dữ liệu. Hãy bấm Quét trước.");
         }
 
-        downloadCsv(state.scannedRows);
+        downloadExcel(state.scannedRows);
         sendResponse({
           ok: true,
-          message: `Đã tải CSV với ${state.scannedRows.length} truyện.`
+          message: `Đã tải Excel với ${state.scannedRows.length} truyện.`
         });
       } catch (error) {
         sendResponse({
@@ -121,7 +124,9 @@
       storyCount: 0,
       detailDone: 0,
       detailTotal: 0,
-      currentTitle: ""
+      currentTitle: "",
+      scanStartedAt: Date.now(),
+      detailStartedAt: 0
     });
 
     runScan()
@@ -151,7 +156,7 @@
       .catch((error) => {
         setProgress({
           phase: "error",
-          currentTitle: error.message
+      currentTitle: error.message
         });
         sendResponse({
           ok: false,
@@ -223,7 +228,8 @@
       storyCount: rows.length,
       detailDone: 0,
       detailTotal: rows.length,
-      currentTitle: ""
+      currentTitle: "",
+      detailStartedAt: Date.now()
     });
     const enrichedRows = await enrichRowsWithDetailPages(rows);
 
@@ -447,7 +453,7 @@
     const unreadCards = chapterCards.filter((card) => !card.classList.contains("read"));
     const latestUnread = unreadCards[0];
     const latestUnreadChapter = latestUnread ? extractChapterLabel(latestUnread) : "";
-    const unreadCount = unreadCards.length;
+    const unreadCount = estimateUnreadCount(continueChapter, latestChapter, unreadCards.length);
 
     if (continueChapter) {
       return {
@@ -459,7 +465,7 @@
         unreadCount,
         note: unreadCount > 0
           ? `Còn ${unreadCount} chap chưa đọc`
-          : "Đã đọc hết các chap hiển thị"
+          : "Đã đọc hết các chap"
       };
     }
 
@@ -470,9 +476,9 @@
         continueChapter: "",
         latestChapter,
         latestUnreadChapter,
-        unreadCount,
+        unreadCount: estimateUnreadCount("", latestChapter, unreadCards.length),
         note: latestChapter
-          ? `Chưa đọc, tổng ${unreadCount} chap hiển thị`
+          ? `Chưa đọc, tổng ${estimateUnreadCount("", latestChapter, unreadCards.length)} chap`
           : "Chưa đọc"
       };
     }
@@ -483,9 +489,29 @@
       continueChapter: "",
       latestChapter,
       latestUnreadChapter,
-      unreadCount,
+      unreadCount: unreadCards.length,
       note: "Không thấy nút Đọc Tiếp hoặc Đọc Từ Đầu trong trang chi tiết"
     };
+  }
+
+  function estimateUnreadCount(continueChapter, latestChapter, visibleUnreadCount) {
+    const latestNumber = parseIntegerChapter(latestChapter);
+    const continueNumber = parseIntegerChapter(continueChapter);
+
+    if (latestNumber && !continueNumber) {
+      return latestNumber;
+    }
+
+    if (latestNumber && continueNumber) {
+      return Math.max(0, latestNumber - continueNumber);
+    }
+
+    return visibleUnreadCount;
+  }
+
+  function parseIntegerChapter(label) {
+    const match = normalizeText(label).match(/^#?([0-9]+)$/);
+    return match ? Number(match[1]) : null;
   }
 
   function extractChapterLabel(node) {
@@ -673,7 +699,8 @@
   function setProgress(nextProgress) {
     state.progress = {
       ...state.progress,
-      ...nextProgress
+      ...nextProgress,
+      updatedAt: Date.now()
     };
   }
 
@@ -742,7 +769,7 @@
     return new Promise((resolve) => window.setTimeout(resolve, ms));
   }
 
-  function downloadCsv(rows) {
+  function downloadExcel(rows) {
     const headers = [
       "STT",
       "Tên truyện",
@@ -752,26 +779,25 @@
       "Số chap chưa đọc",
       "Ghi chú"
     ];
-    const lines = [
-      headers.join(","),
-      ...rows.map((row, index) => [
-        escapeCsv(index + 1),
-        escapeCsv(row.title),
-        escapeCsv(row.readStatus || row.progress),
-        escapeCsv(row.continueChapter),
-        escapeCsv(row.latestChapter),
-        escapeCsv(row.unreadCount),
-        escapeCsv(row.note)
-      ].join(","))
-    ];
-
-    const csvContent = "\uFEFF" + lines.join("\r\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const columnWidths = [56, 360, 110, 92, 105, 132, 260];
+    const tableRows = rows.map((row, index) => [
+      index + 1,
+      row.title,
+      row.readStatus || row.progress,
+      row.continueChapter,
+      row.latestChapter,
+      row.unreadCount,
+      row.note
+    ]);
+    const html = buildExcelHtml(headers, tableRows, columnWidths);
+    const blob = new Blob(["\uFEFF", html], {
+      type: "application/vnd.ms-excel;charset=utf-8;"
+    });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
 
     anchor.href = url;
-    anchor.download = "truyen_dang_theo_doi.csv";
+    anchor.download = "truyen_dang_theo_doi.xls";
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -779,8 +805,73 @@
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
-  function escapeCsv(value) {
-    const normalized = `${value ?? ""}`.replace(/"/g, "\"\"");
-    return `"${normalized}"`;
+  function buildExcelHtml(headers, rows, columnWidths) {
+    const cols = columnWidths
+      .map((width) => `<col style="width:${width}px">`)
+      .join("");
+    const headerCells = headers
+      .map((header) => `<th>${escapeHtml(header)}</th>`)
+      .join("");
+    const bodyRows = rows
+      .map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`)
+      .join("");
+
+    return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <style>
+      table {
+        border-collapse: collapse;
+        font-family: Calibri, Arial, sans-serif;
+        font-size: 11pt;
+      }
+
+      th {
+        background: #d9eaf7;
+        border: 1px solid #b7c9d9;
+        font-weight: 700;
+        padding: 6px 8px;
+        text-align: left;
+        white-space: nowrap;
+      }
+
+      td {
+        border: 1px solid #d7dce2;
+        padding: 5px 8px;
+        vertical-align: top;
+      }
+
+      td:nth-child(1),
+      td:nth-child(4),
+      td:nth-child(5),
+      td:nth-child(6) {
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      td:nth-child(2),
+      td:nth-child(7) {
+        white-space: normal;
+      }
+    </style>
+  </head>
+  <body>
+    <table>
+      <colgroup>${cols}</colgroup>
+      <thead><tr>${headerCells}</tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+  </body>
+</html>`;
+  }
+
+  function escapeHtml(value) {
+    return `${value ?? ""}`
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
 })();

@@ -1,10 +1,17 @@
 const scanButton = document.getElementById("scanButton");
 const downloadButton = document.getElementById("downloadButton");
 const statusElement = document.getElementById("status");
+const pageValue = document.getElementById("pageValue");
+const storyValue = document.getElementById("storyValue");
+const etaValue = document.getElementById("etaValue");
+const phaseText = document.getElementById("phaseText");
+const percentText = document.getElementById("percentText");
+const progressBar = document.getElementById("progressBar");
+
 let statusTimer = null;
 
-function setStatus(message) {
-  statusElement.textContent = message;
+function setStatus(title, body = "") {
+  statusElement.innerHTML = `<strong>${escapeHtml(title)}</strong>${body ? `<br>${escapeHtml(body)}` : ""}`;
 }
 
 async function getActiveTab() {
@@ -22,46 +29,117 @@ function setDownloadReady(isReady) {
   downloadButton.disabled = !isReady;
 }
 
-function formatScanResult(result) {
-  if (!result) {
-    return "";
-  }
-
-  return `Đã quét xong.\nSố trang: ${result.pageCount}\nSố truyện: ${result.storyCount}`;
+function updateProgressBar(percent) {
+  const safePercent = Math.max(0, Math.min(100, Math.round(percent || 0)));
+  progressBar.style.width = `${safePercent}%`;
+  percentText.textContent = `${safePercent}%`;
 }
 
-function formatProgress(progress) {
-  if (!progress) {
-    return "";
+function updateStats({ pages = "-", stories = "-", eta = "-" } = {}) {
+  pageValue.textContent = pages;
+  storyValue.textContent = stories;
+  etaValue.textContent = eta;
+}
+
+function formatDuration(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) {
+    return "-";
   }
 
+  const totalSeconds = Math.max(1, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (minutes <= 0) {
+    return `${seconds}s`;
+  }
+
+  return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
+}
+
+function estimateRemaining(progress) {
+  if (!progress || progress.phase !== "reading_details") {
+    return "-";
+  }
+
+  if (!progress.detailStartedAt || progress.detailDone <= 0) {
+    return "Đang tính";
+  }
+
+  const elapsed = Date.now() - progress.detailStartedAt;
+  const average = elapsed / progress.detailDone;
+  const remaining = Math.max(0, progress.detailTotal - progress.detailDone);
+  return formatDuration(average * remaining);
+}
+
+function formatScanResult(result) {
+  if (!result) {
+    return;
+  }
+
+  updateStats({
+    pages: result.pageCount,
+    stories: result.storyCount,
+    eta: "0s"
+  });
+  updateProgressBar(100);
+  phaseText.textContent = "Hoàn tất";
+  setStatus("Đã quét xong", `${result.storyCount} truyện từ ${result.pageCount} trang. Có thể tải Excel.`);
+}
+
+function renderProgress(progress) {
+  if (!progress) {
+    return;
+  }
+
+  updateStats({
+    pages: progress.pageCount || "-",
+    stories: progress.storyCount || "-",
+    eta: estimateRemaining(progress)
+  });
+
   if (progress.phase === "rewinding") {
-    return "Đang quay về trang đầu tiên...";
+    phaseText.textContent = "Đang về trang đầu";
+    updateProgressBar(3);
+    setStatus("Đang quay về trang đầu tiên", "Extension sẽ quét từ đầu để tránh thiếu truyện.");
+    return;
   }
 
   if (progress.phase === "scanning_pages") {
-    return `Đang quét danh sách...\nSố trang đã gặp: ${progress.pageCount}\nSố truyện đã gom: ${progress.storyCount}`;
+    phaseText.textContent = "Đang gom danh sách";
+    updateProgressBar(12);
+    setStatus("Đang quét danh sách", `${progress.storyCount || 0} truyện đã được ghi nhận.`);
+    return;
   }
 
   if (progress.phase === "reading_details") {
-    const currentLine = progress.currentTitle
-      ? `\nĐang đọc: ${progress.currentTitle}`
-      : "";
-    return `Đang đọc tiến độ từng truyện...\n${progress.detailDone}/${progress.detailTotal} truyện${currentLine}`;
+    const total = progress.detailTotal || 0;
+    const done = progress.detailDone || 0;
+    const percent = total > 0 ? 15 + (done / total) * 85 : 15;
+    const current = progress.currentTitle || "Đang tải trang chi tiết...";
+
+    phaseText.textContent = `Đọc tiến độ ${done}/${total}`;
+    updateProgressBar(percent);
+    setStatus(current, `Còn lại khoảng: ${estimateRemaining(progress)}`);
+    return;
   }
 
   if (progress.phase === "done") {
-    return formatScanResult({
+    formatScanResult({
       pageCount: progress.pageCount,
       storyCount: progress.storyCount
     });
+    return;
   }
 
   if (progress.phase === "error") {
-    return `Lỗi: ${progress.currentTitle || "Không rõ lỗi"}`;
+    phaseText.textContent = "Có lỗi";
+    setStatus("Lỗi khi quét", progress.currentTitle || "Không rõ lỗi.");
+    return;
   }
 
-  return "Đang chuẩn bị quét...";
+  phaseText.textContent = "Sẵn sàng";
+  updateProgressBar(0);
 }
 
 async function getValidatedTab() {
@@ -100,32 +178,35 @@ async function sendToContent(type) {
 async function startScan() {
   setDownloadReady(false);
   setBusy(true);
-  setStatus("Đang quét từ trang đầu tiên...");
+  phaseText.textContent = "Đang bắt đầu";
+  updateProgressBar(1);
+  setStatus("Đang chuẩn bị quét", "Giữ nguyên tab Theo Dõi trong lúc chạy.");
   startStatusPolling();
 
   try {
     const response = await sendToContent("START_SCAN");
     setDownloadReady(true);
-    setStatus(formatScanResult(response.result) || response.message || "Đã quét xong.");
+    formatScanResult(response.result);
   } catch (error) {
     setDownloadReady(false);
-    setStatus(`Lỗi: ${error.message}`);
+    phaseText.textContent = "Có lỗi";
+    setStatus("Lỗi", error.message);
   } finally {
     stopStatusPolling();
     setBusy(false);
   }
 }
 
-async function downloadCsv() {
+async function downloadExcel() {
   setBusy(true);
-  setStatus("Đang tạo file CSV...");
+  setStatus("Đang tạo file Excel", "File sẽ được tải xuống ngay khi tạo xong.");
 
   try {
-    const response = await sendToContent("DOWNLOAD_CSV");
-    setStatus(response.message || "Đã tải CSV.");
+    const response = await sendToContent("DOWNLOAD_EXCEL");
+    setStatus("Đã tải Excel", response.message || "Hoàn tất.");
     setDownloadReady(true);
   } catch (error) {
-    setStatus(`Lỗi: ${error.message}`);
+    setStatus("Lỗi", error.message);
   } finally {
     setBusy(false);
   }
@@ -138,13 +219,13 @@ async function restoreScanStatus() {
 
     if (response.running) {
       setBusy(true);
-      setStatus(formatProgress(response.progress));
+      renderProgress(response.progress);
       startStatusPolling();
       return;
     }
 
     if (response.ready) {
-      setStatus(formatScanResult(response.result));
+      formatScanResult(response.result);
     }
   } catch {
     setDownloadReady(false);
@@ -163,13 +244,13 @@ function startStatusPolling() {
 
       if (response.running) {
         setBusy(true);
-        setStatus(formatProgress(response.progress));
+        renderProgress(response.progress);
         return;
       }
 
       if (response.ready) {
         setBusy(false);
-        setStatus(formatScanResult(response.result));
+        formatScanResult(response.result);
         stopStatusPolling();
         return;
       }
@@ -191,6 +272,15 @@ function stopStatusPolling() {
   statusTimer = null;
 }
 
+function escapeHtml(value) {
+  return `${value ?? ""}`
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 scanButton.addEventListener("click", startScan);
-downloadButton.addEventListener("click", downloadCsv);
+downloadButton.addEventListener("click", downloadExcel);
 restoreScanStatus();

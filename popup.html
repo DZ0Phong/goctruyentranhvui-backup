@@ -7,13 +7,16 @@
     <style>
       :root {
         color-scheme: light;
-        --bg: #f4efe4;
-        --panel: #fffaf1;
-        --text: #24180f;
-        --muted: #6f5a49;
-        --accent: #c96f2d;
-        --accent-strong: #9f4d16;
-        --border: #e7d7c4;
+        --bg: #f6f7fb;
+        --panel: #ffffff;
+        --ink: #16181d;
+        --muted: #667085;
+        --line: #e6e8ef;
+        --blue: #2563eb;
+        --blue-strong: #1d4ed8;
+        --green: #0f9f6e;
+        --amber: #b7791f;
+        --shadow: 0 18px 50px rgba(22, 24, 29, 0.16);
       }
 
       * {
@@ -22,97 +25,238 @@
 
       body {
         margin: 0;
-        min-width: 320px;
+        width: 396px;
+        min-width: 396px;
+        max-width: 396px;
         font-family: "Segoe UI", Tahoma, sans-serif;
+        color: var(--ink);
         background:
-          radial-gradient(circle at top left, #fff8ec 0, #fff8ec 28%, transparent 29%),
-          linear-gradient(135deg, #f3e6d1, #f8f3ea 58%, #efe3ce);
-        color: var(--text);
+          linear-gradient(135deg, rgba(37, 99, 235, 0.12), transparent 34%),
+          linear-gradient(180deg, #f9fafc, var(--bg));
       }
 
       main {
-        padding: 16px;
-      }
-
-      h1 {
-        margin: 0 0 8px;
-        font-size: 18px;
-      }
-
-      .author {
-        margin-top: -4px;
-        margin-bottom: 10px;
-        color: var(--accent-strong);
-        font-size: 12px;
-        font-weight: 600;
-      }
-
-      p {
-        margin: 0 0 12px;
-        color: var(--muted);
-        font-size: 13px;
-        line-height: 1.5;
+        padding: 14px;
       }
 
       .panel {
-        background: color-mix(in srgb, var(--panel) 92%, white);
-        border: 1px solid var(--border);
-        border-radius: 14px;
-        padding: 14px;
-        box-shadow: 0 10px 28px rgba(76, 49, 24, 0.09);
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
       }
 
-      button {
-        width: 100%;
-        border: 0;
+      .header {
+        display: grid;
+        grid-template-columns: 44px 1fr;
+        gap: 11px;
+        align-items: center;
+        padding: 16px 16px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .mark {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        box-shadow: 0 10px 20px rgba(37, 99, 235, 0.22);
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 16px;
+        line-height: 1.2;
+      }
+
+      .author {
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .body {
+        padding: 14px 16px 16px;
+      }
+
+      .summary {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .stat {
+        min-width: 0;
+        border: 1px solid var(--line);
         border-radius: 10px;
-        padding: 12px 14px;
-        background: linear-gradient(180deg, var(--accent), var(--accent-strong));
-        color: white;
-        font: inherit;
-        font-weight: 600;
-        cursor: pointer;
+        padding: 9px 8px;
+        background: #fbfcff;
+      }
+
+      .stat span {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .stat strong {
+        display: block;
+        margin-top: 3px;
+        overflow: hidden;
+        color: var(--ink);
+        font-size: 15px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .progress {
+        margin-bottom: 12px;
+      }
+
+      .progress-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 7px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .track {
+        overflow: hidden;
+        height: 9px;
+        border-radius: 999px;
+        background: #e9edf5;
+      }
+
+      .bar {
+        width: 0%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, var(--blue), var(--green));
+        transition: width 220ms ease;
+      }
+
+      .current {
+        height: 84px;
+        margin-bottom: 12px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 10px 11px;
+        background: #fbfcff;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .current strong {
+        display: block;
+        max-width: 100%;
+        overflow: hidden;
+        color: var(--ink);
+        font-size: 13px;
+        line-height: 1.35;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .actions {
         display: grid;
-        gap: 8px;
+        grid-template-columns: 1fr 1fr;
+        gap: 9px;
+      }
+
+      button {
+        width: 100%;
+        min-height: 42px;
+        border: 0;
+        border-radius: 11px;
+        color: white;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      #scanButton {
+        background: linear-gradient(180deg, var(--blue), var(--blue-strong));
       }
 
       #downloadButton {
-        background: linear-gradient(180deg, #334155, #111827);
+        background: linear-gradient(180deg, #1f2937, #111827);
       }
 
       button:disabled {
-        opacity: 0.65;
-        cursor: progress;
+        cursor: not-allowed;
+        opacity: 0.45;
       }
 
-      #status {
-        margin-top: 12px;
-        min-height: 40px;
-        padding: 10px 12px;
-        border-radius: 10px;
-        background: #fff;
-        border: 1px solid var(--border);
-        font-size: 13px;
+      .hint {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 11px;
         line-height: 1.4;
-        white-space: pre-wrap;
+      }
+
+      .hint strong {
+        color: var(--amber);
       }
     </style>
   </head>
   <body>
     <main>
-      <div class="panel">
-        <h1>Export Truyện Theo Dõi</h1>
-        <div class="author">By DZ0Phong</div>
-        <p>Mở đúng trang theo dõi, bấm nút bên dưới để quét và tải file CSV.</p>
-        <div class="actions">
-          <button id="scanButton" type="button">Quét dữ liệu</button>
-          <button id="downloadButton" type="button" disabled>Tải CSV</button>
+      <section class="panel">
+        <div class="header">
+          <img class="mark" src="icons/icon48.png" alt="">
+          <div>
+            <h1>Export Truyện Theo Dõi</h1>
+            <div class="author">By DZ0Phong</div>
+          </div>
         </div>
-        <div id="status">Sẵn sàng.</div>
-      </div>
+
+        <div class="body">
+          <div class="summary">
+            <div class="stat">
+              <span>Trang</span>
+              <strong id="pageValue">-</strong>
+            </div>
+            <div class="stat">
+              <span>Truyện</span>
+              <strong id="storyValue">-</strong>
+            </div>
+            <div class="stat">
+              <span>Còn lại</span>
+              <strong id="etaValue">-</strong>
+            </div>
+          </div>
+
+          <div class="progress">
+            <div class="progress-head">
+              <span id="phaseText">Sẵn sàng</span>
+              <span id="percentText">0%</span>
+            </div>
+            <div class="track">
+              <div id="progressBar" class="bar"></div>
+            </div>
+          </div>
+
+          <div id="status" class="current">
+            <strong>Chưa có dữ liệu</strong>
+            Mở trang Theo Dõi rồi bấm Quét dữ liệu.
+          </div>
+
+          <div class="actions">
+            <button id="scanButton" type="button">Quét dữ liệu</button>
+            <button id="downloadButton" type="button" disabled>Tải Excel</button>
+          </div>
+
+          <div class="hint">
+            <strong>Lưu ý:</strong> giữ nguyên tab Theo Dõi trong lúc quét để kết quả ổn định.
+          </div>
+        </div>
+      </section>
     </main>
     <script src="popup.js"></script>
   </body>
