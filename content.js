@@ -282,10 +282,12 @@
     const text =
       normalizeText(node.querySelector(".chapter-info span")?.textContent) ||
       normalizeText(node.textContent);
-    const match = text.match(/#\s*([0-9]+(?:\.[0-9]+)?(?:\s*:\s*[A-Z0-9.-]+)?)/i);
 
-    if (match) {
-      return `#${normalizeText(match[1])}`;
+    if (text.includes("#")) {
+      const label = normalizeText(text.slice(text.indexOf("#") + 1));
+      if (label) {
+        return `#${label}`;
+      }
     }
 
     const urlChapter = extractChapterFromUrl(node.getAttribute("href"));
