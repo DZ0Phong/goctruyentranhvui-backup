@@ -1,6 +1,8 @@
 (function initExporter() {
   const state = {
-    running: false
+    running: false,
+    scannedRows: [],
+    lastResult: null
   };
 
   const config = {
@@ -29,6 +31,12 @@
         "button.next[title='Sau']",
         ".next[title='Sau']"
       ],
+      prevPage: [
+        ".items-title button.prev[title='Trước']",
+        ".items-title .prev[title='Trước']",
+        "button.prev[title='Trước']",
+        ".prev[title='Trước']"
+      ],
       detail: [
         ".start-chapter",
         ".btn-recent",
@@ -40,31 +48,71 @@
       ]
     },
     timings: {
-      afterClickMs: 1200
+      afterClickMs: 1200,
+      detailRenderTimeoutMs: 9000
     },
-    detailConcurrency: 4,
+    detailConcurrency: 2,
     maxPages: 100
   };
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type !== "START_EXPORT") {
+    if (message?.type === "GET_SCAN_STATUS") {
+      sendResponse({
+        ok: true,
+        ready: state.scannedRows.length > 0,
+        running: state.running,
+        result: state.lastResult
+      });
+      return;
+    }
+
+    if (message?.type === "DOWNLOAD_CSV") {
+      try {
+        if (state.scannedRows.length === 0) {
+          throw new Error("Chua co du lieu. Hay bam Quet truoc.");
+        }
+
+        downloadCsv(state.scannedRows);
+        sendResponse({
+          ok: true,
+          message: `Da tai CSV voi ${state.scannedRows.length} truyen.`
+        });
+      } catch (error) {
+        sendResponse({
+          ok: false,
+          error: error.message
+        });
+      }
+      return;
+    }
+
+    if (message?.type !== "START_SCAN" && message?.type !== "START_EXPORT") {
       return;
     }
 
     if (state.running) {
       sendResponse({
         ok: false,
-        error: "Tien trinh export dang chay. Hay doi xong roi thu lai."
+        error: "Tien trinh quet dang chay. Hay doi xong roi thu lai."
       });
       return;
     }
 
     state.running = true;
 
-    runExport()
+    runScan()
       .then((result) => {
+        state.scannedRows = result.rows;
+        state.lastResult = {
+          pageCount: result.pageCount,
+          storyCount: result.rows.length,
+          scannedAt: new Date().toISOString()
+        };
+
         sendResponse({
           ok: true,
+          ready: true,
+          result: state.lastResult,
           message: result.message
         });
       })
@@ -81,8 +129,9 @@
     return true;
   });
 
-  async function runExport() {
+  async function runScan() {
     assertFollowPage();
+    await rewindToFirstPage();
 
     const rows = [];
     const seenKeys = new Set();
@@ -123,10 +172,10 @@
 
     const enrichedRows = await enrichRowsWithDetailPages(rows);
 
-    downloadCsv(enrichedRows);
-
     return {
-      message: `Da xuat ${enrichedRows.length} truyen tu ${pageCount} trang.`
+      rows: enrichedRows,
+      pageCount,
+      message: `Quet xong ${enrichedRows.length} truyen tu ${pageCount} trang.`
     };
   }
 
@@ -219,6 +268,18 @@
   }
 
   async function fetchStoryDetail(url) {
+    try {
+      return await renderStoryDetailInIframe(url);
+    } catch (renderError) {
+      const staticDetail = await fetchStaticStoryDetail(url);
+      return {
+        ...staticDetail,
+        note: `${staticDetail.note} (doc tu HTML tinh vi render iframe loi: ${renderError.message})`
+      };
+    }
+  }
+
+  async function fetchStaticStoryDetail(url) {
     const response = await fetch(url, {
       credentials: "include"
     });
@@ -230,6 +291,84 @@
     const html = await response.text();
     const doc = new DOMParser().parseFromString(html, "text/html");
     return extractDetailProgress(doc);
+  }
+
+  async function renderStoryDetailInIframe(url) {
+    const iframe = document.createElement("iframe");
+    iframe.src = url;
+    iframe.style.cssText = [
+      "position: fixed",
+      "left: -9999px",
+      "top: -9999px",
+      "width: 1px",
+      "height: 1px",
+      "opacity: 0",
+      "pointer-events: none",
+      "border: 0"
+    ].join(";");
+
+    try {
+      const loadPromise = waitForIframeLoad(iframe);
+      document.body.appendChild(iframe);
+      await loadPromise;
+      await waitForDetailRender(iframe);
+      return extractDetailProgress(iframe.contentDocument);
+    } finally {
+      iframe.remove();
+    }
+  }
+
+  function waitForIframeLoad(iframe) {
+    return new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        cleanup();
+        reject(new Error("timeout khi load iframe"));
+      }, config.timings.detailRenderTimeoutMs);
+
+      function cleanup() {
+        window.clearTimeout(timeout);
+        iframe.removeEventListener("load", handleLoad);
+        iframe.removeEventListener("error", handleError);
+      }
+
+      function handleLoad() {
+        cleanup();
+        resolve();
+      }
+
+      function handleError() {
+        cleanup();
+        reject(new Error("iframe load loi"));
+      }
+
+      iframe.addEventListener("load", handleLoad, { once: true });
+      iframe.addEventListener("error", handleError, { once: true });
+    });
+  }
+
+  async function waitForDetailRender(iframe) {
+    const start = Date.now();
+
+    while (Date.now() - start < config.timings.detailRenderTimeoutMs) {
+      const doc = iframe.contentDocument;
+      if (!doc) {
+        throw new Error("khong doc duoc iframe document");
+      }
+
+      const hasReaderButtons = Boolean(
+        doc.querySelector(".start-chapter .btn-recent, .start-chapter .btn-start")
+      );
+      const hasChapters = doc.querySelectorAll(config.selectors.chapterCards.join(",")).length > 0;
+
+      if (hasReaderButtons && hasChapters) {
+        await delay(250);
+        return;
+      }
+
+      await delay(250);
+    }
+
+    throw new Error("timeout khi doi trang chi tiet render");
   }
 
   function extractDetailProgress(doc) {
@@ -358,6 +497,38 @@
     return null;
   }
 
+  async function rewindToFirstPage() {
+    await waitForPageReady();
+
+    for (let step = 0; step < config.maxPages; step += 1) {
+      const items = collectCurrentPageItems();
+      const pageSignature = createPageSignature(items);
+      const prevButton = findPrevPageButton();
+
+      if (!prevButton) {
+        return;
+      }
+
+      prevButton.click();
+      const changed = await waitForPageChange(pageSignature);
+      if (!changed) {
+        return;
+      }
+    }
+  }
+
+  function findPrevPageButton() {
+    for (const selector of config.selectors.prevPage) {
+      const candidates = Array.from(document.querySelectorAll(selector));
+      const matched = candidates.find(isPrevPageCandidate);
+      if (matched) {
+        return matched;
+      }
+    }
+
+    return null;
+  }
+
   function isNextPageCandidate(node) {
     if (!node || isVisuallyDisabled(node)) {
       return false;
@@ -374,6 +545,20 @@
       /page=\d+/i.test(href) ||
       node.classList.contains("next")
     );
+  }
+
+  function isPrevPageCandidate(node) {
+    if (!node || isVisuallyDisabled(node)) {
+      return false;
+    }
+
+    const text = normalizeText(node.textContent);
+    const label = normalizeText(
+      `${node.getAttribute("aria-label") || ""} ${node.getAttribute("title") || ""}`
+    );
+
+    return /trang\s*truoc|trang\s*trước|previous|prev|truoc|trước/i.test(`${text} ${label}`) ||
+      node.classList.contains("prev");
   }
 
   function isVisuallyDisabled(node) {
@@ -474,8 +659,8 @@
 
   function downloadCsv(rows) {
     const headers = [
+      "STT",
       "Ten truyen",
-      "Link truyen",
       "Tien do doc",
       "Doc tiep",
       "Chap moi nhat",
@@ -484,9 +669,9 @@
     ];
     const lines = [
       headers.join(","),
-      ...rows.map((row) => [
+      ...rows.map((row, index) => [
+        escapeCsv(index + 1),
         escapeCsv(row.title),
-        escapeCsv(row.link),
         escapeCsv(row.progress),
         escapeCsv(row.continueChapter),
         escapeCsv(row.latestChapter),
