@@ -1,6 +1,7 @@
 const scanButton = document.getElementById("scanButton");
 const downloadButton = document.getElementById("downloadButton");
 const statusElement = document.getElementById("status");
+let statusTimer = null;
 
 function setStatus(message) {
   statusElement.textContent = message;
@@ -26,22 +27,56 @@ function formatScanResult(result) {
     return "";
   }
 
-  return `Da quet xong.\nSo trang: ${result.pageCount}\nSo truyen: ${result.storyCount}`;
+  return `Đã quét xong.\nSố trang: ${result.pageCount}\nSố truyện: ${result.storyCount}`;
+}
+
+function formatProgress(progress) {
+  if (!progress) {
+    return "";
+  }
+
+  if (progress.phase === "rewinding") {
+    return "Đang quay về trang đầu tiên...";
+  }
+
+  if (progress.phase === "scanning_pages") {
+    return `Đang quét danh sách...\nSố trang đã gặp: ${progress.pageCount}\nSố truyện đã gom: ${progress.storyCount}`;
+  }
+
+  if (progress.phase === "reading_details") {
+    const currentLine = progress.currentTitle
+      ? `\nĐang đọc: ${progress.currentTitle}`
+      : "";
+    return `Đang đọc tiến độ từng truyện...\n${progress.detailDone}/${progress.detailTotal} truyện${currentLine}`;
+  }
+
+  if (progress.phase === "done") {
+    return formatScanResult({
+      pageCount: progress.pageCount,
+      storyCount: progress.storyCount
+    });
+  }
+
+  if (progress.phase === "error") {
+    return `Lỗi: ${progress.currentTitle || "Không rõ lỗi"}`;
+  }
+
+  return "Đang chuẩn bị quét...";
 }
 
 async function getValidatedTab() {
   const tab = await getActiveTab();
 
   if (!tab?.id || !tab.url) {
-    throw new Error("Khong tim thay tab dang mo.");
+    throw new Error("Không tìm thấy tab đang mở.");
   }
 
   if (!tab.url.includes("goctruyentranhvui23.com")) {
-    throw new Error("Hay mo website goctruyentranhvui23.com truoc.");
+    throw new Error("Hãy mở website goctruyentranhvui23.com trước.");
   }
 
   if (!tab.url.includes("/truyen/theo-doi")) {
-    throw new Error("Hay mo dung trang Theo Doi truoc khi export.");
+    throw new Error("Hãy mở đúng trang Theo Dõi trước khi export.");
   }
 
   return tab;
@@ -52,11 +87,11 @@ async function sendToContent(type) {
   const response = await chrome.tabs.sendMessage(tab.id, { type });
 
   if (!response) {
-    throw new Error("Content script khong phan hoi.");
+    throw new Error("Content script không phản hồi.");
   }
 
   if (!response.ok) {
-    throw new Error(response.error || "Thao tac that bai.");
+    throw new Error(response.error || "Thao tác thất bại.");
   }
 
   return response;
@@ -65,30 +100,32 @@ async function sendToContent(type) {
 async function startScan() {
   setDownloadReady(false);
   setBusy(true);
-  setStatus("Dang quet tu trang dau tien...");
+  setStatus("Đang quét từ trang đầu tiên...");
+  startStatusPolling();
 
   try {
     const response = await sendToContent("START_SCAN");
     setDownloadReady(true);
-    setStatus(formatScanResult(response.result) || response.message || "Da quet xong.");
+    setStatus(formatScanResult(response.result) || response.message || "Đã quét xong.");
   } catch (error) {
     setDownloadReady(false);
-    setStatus(`Loi: ${error.message}`);
+    setStatus(`Lỗi: ${error.message}`);
   } finally {
+    stopStatusPolling();
     setBusy(false);
   }
 }
 
 async function downloadCsv() {
   setBusy(true);
-  setStatus("Dang tao file CSV...");
+  setStatus("Đang tạo file CSV...");
 
   try {
     const response = await sendToContent("DOWNLOAD_CSV");
-    setStatus(response.message || "Da tai CSV.");
+    setStatus(response.message || "Đã tải CSV.");
     setDownloadReady(true);
   } catch (error) {
-    setStatus(`Loi: ${error.message}`);
+    setStatus(`Lỗi: ${error.message}`);
   } finally {
     setBusy(false);
   }
@@ -99,12 +136,59 @@ async function restoreScanStatus() {
     const response = await sendToContent("GET_SCAN_STATUS");
     setDownloadReady(Boolean(response.ready));
 
+    if (response.running) {
+      setBusy(true);
+      setStatus(formatProgress(response.progress));
+      startStatusPolling();
+      return;
+    }
+
     if (response.ready) {
       setStatus(formatScanResult(response.result));
     }
   } catch {
     setDownloadReady(false);
   }
+}
+
+function startStatusPolling() {
+  if (statusTimer) {
+    return;
+  }
+
+  statusTimer = window.setInterval(async () => {
+    try {
+      const response = await sendToContent("GET_SCAN_STATUS");
+      setDownloadReady(Boolean(response.ready));
+
+      if (response.running) {
+        setBusy(true);
+        setStatus(formatProgress(response.progress));
+        return;
+      }
+
+      if (response.ready) {
+        setBusy(false);
+        setStatus(formatScanResult(response.result));
+        stopStatusPolling();
+        return;
+      }
+
+      setBusy(false);
+      stopStatusPolling();
+    } catch {
+      stopStatusPolling();
+    }
+  }, 1000);
+}
+
+function stopStatusPolling() {
+  if (!statusTimer) {
+    return;
+  }
+
+  window.clearInterval(statusTimer);
+  statusTimer = null;
 }
 
 scanButton.addEventListener("click", startScan);

@@ -3,7 +3,7 @@
   "name": "GocTruyenTranhVui Follow Exporter",
   "version": "0.1.0",
   "author": "DZ0Phong",
-  "description": "Xuat danh sach truyen dang theo doi va tien do doc ra file CSV.",
+  "description": "Xuất danh sách truyện đang theo dõi và tiến độ đọc ra file CSV.",
   "permissions": [
     "tabs"
   ],

@@ -2,7 +2,15 @@
   const state = {
     running: false,
     scannedRows: [],
-    lastResult: null
+    lastResult: null,
+    progress: {
+      phase: "idle",
+      pageCount: 0,
+      storyCount: 0,
+      detailDone: 0,
+      detailTotal: 0,
+      currentTitle: ""
+    }
   };
 
   const config = {
@@ -35,7 +43,11 @@
         ".items-title button.prev[title='Trước']",
         ".items-title .prev[title='Trước']",
         "button.prev[title='Trước']",
-        ".prev[title='Trước']"
+        ".prev[title='Trước']",
+        ".items-title button.prev",
+        ".items-title .prev",
+        "button.prev",
+        ".prev"
       ],
       detail: [
         ".start-chapter",
@@ -49,9 +61,10 @@
     },
     timings: {
       afterClickMs: 1200,
-      detailRenderTimeoutMs: 9000
+      detailRenderTimeoutMs: 9000,
+      detailRequestDelayMs: 1200
     },
-    detailConcurrency: 2,
+    detailConcurrency: 1,
     maxPages: 100
   };
 
@@ -61,7 +74,8 @@
         ok: true,
         ready: state.scannedRows.length > 0,
         running: state.running,
-        result: state.lastResult
+        result: state.lastResult,
+        progress: state.progress
       });
       return;
     }
@@ -69,13 +83,13 @@
     if (message?.type === "DOWNLOAD_CSV") {
       try {
         if (state.scannedRows.length === 0) {
-          throw new Error("Chua co du lieu. Hay bam Quet truoc.");
+          throw new Error("Chưa có dữ liệu. Hãy bấm Quét trước.");
         }
 
         downloadCsv(state.scannedRows);
         sendResponse({
           ok: true,
-          message: `Da tai CSV voi ${state.scannedRows.length} truyen.`
+          message: `Đã tải CSV với ${state.scannedRows.length} truyện.`
         });
       } catch (error) {
         sendResponse({
@@ -93,12 +107,22 @@
     if (state.running) {
       sendResponse({
         ok: false,
-        error: "Tien trinh quet dang chay. Hay doi xong roi thu lai."
+        error: "Tiến trình quét đang chạy. Hãy đợi xong rồi thử lại."
       });
       return;
     }
 
     state.running = true;
+    state.scannedRows = [];
+    state.lastResult = null;
+    setProgress({
+      phase: "starting",
+      pageCount: 0,
+      storyCount: 0,
+      detailDone: 0,
+      detailTotal: 0,
+      currentTitle: ""
+    });
 
     runScan()
       .then((result) => {
@@ -108,6 +132,14 @@
           storyCount: result.rows.length,
           scannedAt: new Date().toISOString()
         };
+        setProgress({
+          phase: "done",
+          pageCount: result.pageCount,
+          storyCount: result.rows.length,
+          detailDone: result.rows.length,
+          detailTotal: result.rows.length,
+          currentTitle: ""
+        });
 
         sendResponse({
           ok: true,
@@ -117,6 +149,10 @@
         });
       })
       .catch((error) => {
+        setProgress({
+          phase: "error",
+          currentTitle: error.message
+        });
         sendResponse({
           ok: false,
           error: error.message
@@ -131,6 +167,7 @@
 
   async function runScan() {
     assertFollowPage();
+    setProgress({ phase: "rewinding" });
     await rewindToFirstPage();
 
     const rows = [];
@@ -139,6 +176,11 @@
 
     while (pageCount < config.maxPages) {
       pageCount += 1;
+      setProgress({
+        phase: "scanning_pages",
+        pageCount,
+        storyCount: rows.length
+      });
       await waitForPageReady();
 
       const items = collectCurrentPageItems();
@@ -151,6 +193,11 @@
           rows.push(item);
         }
       }
+
+      setProgress({
+        pageCount,
+        storyCount: rows.length
+      });
 
       const nextButton = findNextPageButton();
       if (!nextButton) {
@@ -166,22 +213,30 @@
 
     if (rows.length === 0) {
       throw new Error(
-        "Chua quet duoc dong du lieu nao. Can bo sung selector tu HTML that cua trang Theo Doi."
+        "Chưa quét được dòng dữ liệu nào. Cần bổ sung selector từ HTML thật của trang Theo Dõi."
       );
     }
 
+    setProgress({
+      phase: "reading_details",
+      pageCount,
+      storyCount: rows.length,
+      detailDone: 0,
+      detailTotal: rows.length,
+      currentTitle: ""
+    });
     const enrichedRows = await enrichRowsWithDetailPages(rows);
 
     return {
       rows: enrichedRows,
       pageCount,
-      message: `Quet xong ${enrichedRows.length} truyen tu ${pageCount} trang.`
+      message: `Quét xong ${enrichedRows.length} truyện từ ${pageCount} trang.`
     };
   }
 
   function assertFollowPage() {
     if (!location.pathname.includes("/truyen/theo-doi")) {
-      throw new Error("Ban can mo dung trang /truyen/theo-doi.");
+      throw new Error("Bạn cần mở đúng trang /truyen/theo-doi.");
     }
   }
 
@@ -236,32 +291,40 @@
       title,
       link,
       progress: progressText,
+      readStatus: "Chưa xác định",
       continueChapter: "",
       latestChapter: chapterSummary,
       latestUnreadChapter: "",
+      unreadCount: "",
       note: chapterSummary
         ? "Tien do tam thoi lay tu danh sach ngoai"
-        : "Can HTML trong trang doc de lay chap dang doc that"
+        : "Cần HTML trong trang đọc để lấy chap đang đọc thật"
     };
   }
 
   async function enrichRowsWithDetailPages(rows) {
     return mapWithConcurrency(rows, config.detailConcurrency, async (row) => {
       try {
+        setProgress({
+          phase: "reading_details",
+          currentTitle: row.title
+        });
         const detail = await fetchStoryDetail(row.link);
 
         return {
           ...row,
           progress: detail.progress || row.progress,
+          readStatus: detail.readStatus || row.readStatus,
           continueChapter: detail.continueChapter || "",
           latestChapter: detail.latestChapter || row.latestChapter,
           latestUnreadChapter: detail.latestUnreadChapter || "",
+          unreadCount: detail.unreadCount ?? "",
           note: detail.note || row.note
         };
       } catch (error) {
         return {
           ...row,
-          note: `Khong doc duoc trang chi tiet: ${error.message}`
+          note: `Không đọc được trang chi tiết: ${error.message}`
         };
       }
     });
@@ -274,7 +337,7 @@
       const staticDetail = await fetchStaticStoryDetail(url);
       return {
         ...staticDetail,
-        note: `${staticDetail.note} (doc tu HTML tinh vi render iframe loi: ${renderError.message})`
+        note: `${staticDetail.note} (đọc từ HTML tĩnh vì render iframe lỗi: ${renderError.message})`
       };
     }
   }
@@ -352,7 +415,7 @@
     while (Date.now() - start < config.timings.detailRenderTimeoutMs) {
       const doc = iframe.contentDocument;
       if (!doc) {
-        throw new Error("khong doc duoc iframe document");
+        throw new Error("không đọc được iframe document");
       }
 
       const hasReaderButtons = Boolean(
@@ -368,7 +431,7 @@
       await delay(250);
     }
 
-    throw new Error("timeout khi doi trang chi tiet render");
+    throw new Error("timeout khi đợi trang chi tiết render");
   }
 
   function extractDetailProgress(doc) {
@@ -381,39 +444,47 @@
       doc.querySelectorAll(config.selectors.chapterCards.join(","))
     );
     const latestChapter = chapterCards.length > 0 ? extractChapterLabel(chapterCards[0]) : "";
-    const latestUnread = chapterCards.find((card) => !card.classList.contains("read"));
+    const unreadCards = chapterCards.filter((card) => !card.classList.contains("read"));
+    const latestUnread = unreadCards[0];
     const latestUnreadChapter = latestUnread ? extractChapterLabel(latestUnread) : "";
+    const unreadCount = unreadCards.length;
 
     if (continueChapter) {
       return {
         progress: `Da doc toi ${continueChapter}`,
+        readStatus: "Đang đọc",
         continueChapter,
         latestChapter,
         latestUnreadChapter,
-        note: latestUnreadChapter
-          ? `Co chap chua doc moi nhat ${latestUnreadChapter}`
-          : "Tat ca chap hien thi da doc"
+        unreadCount,
+        note: unreadCount > 0
+          ? `Còn ${unreadCount} chap chưa đọc`
+          : "Đã đọc hết các chap hiển thị"
       };
     }
 
     if (startButton) {
       return {
-        progress: "Chua doc",
+        progress: "Chưa đọc",
+        readStatus: "Chưa đọc",
         continueChapter: "",
         latestChapter,
         latestUnreadChapter,
+        unreadCount,
         note: latestChapter
-          ? `Chua doc, co the bat dau tu ${latestChapter}`
-          : "Chua doc"
+          ? `Chưa đọc, tổng ${unreadCount} chap hiển thị`
+          : "Chưa đọc"
       };
     }
 
     return {
-      progress: "Chua xac dinh",
+      progress: "Chưa xác định",
+      readStatus: "Chưa xác định",
       continueChapter: "",
       latestChapter,
       latestUnreadChapter,
-      note: "Khong thay nut Doc Tiep hoac Doc Tu Dau trong trang chi tiet"
+      unreadCount,
+      note: "Không thấy nút Đọc Tiếp hoặc Đọc Từ Đầu trong trang chi tiết"
     };
   }
 
@@ -599,6 +670,13 @@
       .join("||");
   }
 
+  function setProgress(nextProgress) {
+    state.progress = {
+      ...state.progress,
+      ...nextProgress
+    };
+  }
+
   async function mapWithConcurrency(items, limit, mapper) {
     const results = new Array(items.length);
     let nextIndex = 0;
@@ -608,6 +686,13 @@
         const currentIndex = nextIndex;
         nextIndex += 1;
         results[currentIndex] = await mapper(items[currentIndex], currentIndex);
+        setProgress({
+          detailDone: currentIndex + 1,
+          detailTotal: items.length
+        });
+        if (nextIndex < items.length && config.timings.detailRequestDelayMs > 0) {
+          await delay(config.timings.detailRequestDelayMs);
+        }
       }
     }
 
@@ -660,22 +745,22 @@
   function downloadCsv(rows) {
     const headers = [
       "STT",
-      "Ten truyen",
-      "Tien do doc",
-      "Doc tiep",
-      "Chap moi nhat",
-      "Chap chua doc moi nhat",
-      "Ghi chu"
+      "Tên truyện",
+      "Trạng thái",
+      "Đã đọc tới",
+      "Chap mới nhất",
+      "Số chap chưa đọc",
+      "Ghi chú"
     ];
     const lines = [
       headers.join(","),
       ...rows.map((row, index) => [
         escapeCsv(index + 1),
         escapeCsv(row.title),
-        escapeCsv(row.progress),
+        escapeCsv(row.readStatus || row.progress),
         escapeCsv(row.continueChapter),
         escapeCsv(row.latestChapter),
-        escapeCsv(row.latestUnreadChapter),
+        escapeCsv(row.unreadCount),
         escapeCsv(row.note)
       ].join(","))
     ];
